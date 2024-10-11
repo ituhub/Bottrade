@@ -1,0 +1,26 @@
+[server]
+enableXsrfProtection = false
+
+[global]
+developmentMode = false
+
+[browser]
+serverAddress = "0.0.0.0"
+serverPort = 8501
+
+[runner]
+magicEnabled = true
+installTracer = false
+
+[theme]
+base = "light"
+
+[client]
+showErrorDetails = true
+
+[logger]
+level = "info"
+
+[dependencies]
+enablePyPiInstallation = true
+pipInstallArgs = ["--only-binary=:all:"]
