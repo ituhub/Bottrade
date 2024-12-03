@@ -11,8 +11,9 @@ from sklearn.metrics import classification_report
 
 # Constants
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
-FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X", "USDCAD=X"]
+FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
+INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
 # Retrieve API key
 api_key = os.getenv('FMP_API_KEY')
@@ -250,6 +251,8 @@ def main():
         symbols = FOREX_SYMBOLS
     else:
         symbols = CRYPTO_SYMBOLS
+    elif asset_type == "Indices":
+        symbols = INDICES_SYMBOLS
 
     start_date = st.sidebar.date_input(
         "Start Date", datetime.now() - timedelta(days=365))
