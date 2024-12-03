@@ -249,7 +249,7 @@ def main():
         symbols = COMMODITIES
     elif asset_type == "Forex":
         symbols = FOREX_SYMBOLS
-    else:
+    elif asset_type == "Crypto":
         symbols = CRYPTO_SYMBOLS
     elif asset_type == "Indices":
         symbols = INDICES_SYMBOLS
