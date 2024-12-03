@@ -313,7 +313,21 @@ def main():
 
             progress_bar.progress((idx + 1) / total_symbols)
 
-        # Add Signals Table Section
+        # Display signals in a table
+        signals_df = pd.DataFrame(signals_list)
+        if not signals_df.empty:
+            signals_df = signals_df.sort_values(
+                by='Model Accuracy', ascending=False)
+            st.subheader("Market Signals")
+            st.dataframe(signals_df.style.applymap(
+                lambda x: 'background-color: lightgreen' if x == 'Buy' else (
+                    'background-color: pink' if x == 'Sell' else ''),
+                subset=['Recommended Action']
+            ))
+        else:
+            st.write("No signals to display.")
+            
+            # Add Signals Table Section
 def display_signals_table(data, open_positions, trade_history):
     """
     Display a table with the following columns:
