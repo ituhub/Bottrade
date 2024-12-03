@@ -243,7 +243,7 @@ def main():
         "Stop-Loss Percentage", min_value=0.01, max_value=0.2, value=0.05, step=0.01)
 
     asset_type = st.sidebar.selectbox(
-        "Select Asset Type", ["Commodities", "Forex", "Crypto"])
+        "Select Asset Type", ["Commodities", "Forex", "Crypto", "Indices"])
 
     if asset_type == "Commodities":
         symbols = COMMODITIES
