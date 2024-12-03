@@ -15,7 +15,6 @@ from sklearn.metrics import classification_report
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X", "USDCAD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
-                  
 
 # Retrieve API key
 api_key = os.getenv('FMP_API_KEY')
@@ -31,11 +30,9 @@ if 'trade_history' not in st.session_state:
 if 'stop_loss' not in st.session_state:
     st.session_state.stop_loss = {}
 
-
 def get_data(symbol, start_date, end_date):
     data = yf.download(symbol, start=start_date, end=end_date)
     return data
-
 
 def calculate_signals(data):
     """Calculate technical indicators and generate signals."""
@@ -78,7 +75,6 @@ def calculate_signals(data):
 
     return data
 
-
 def prepare_ml_data(data):
     """Prepare data for machine learning."""
     data = data.copy()
@@ -96,7 +92,6 @@ def prepare_ml_data(data):
 
     return X, y
 
-
 def train_ml_model(X, y):
     """Train the XGBoost model."""
     X_train, X_test, y_train, y_test = train_test_split(
@@ -110,7 +105,6 @@ def train_ml_model(X, y):
     accuracy = report['accuracy']
 
     return model, accuracy
-
 
 def execute_trade(symbol, action, price, amount):
     """Execute buy or sell orders."""
@@ -161,7 +155,6 @@ def execute_trade(symbol, action, price, amount):
             st.warning(f"No sufficient holdings to sell for {symbol}.")
             return False
 
-
 def check_stop_loss(symbol, current_price):
     """Check if the stop-loss condition is met."""
     if symbol in st.session_state.stop_loss and current_price <= st.session_state.stop_loss[symbol]:
@@ -169,7 +162,6 @@ def check_stop_loss(symbol, current_price):
         if execute_trade(symbol, 'Sell', current_price, amount):
             st.warning(
                 f"Stop-loss triggered for {symbol}. Sold {amount} at ${current_price:.2f}")
-
 
 def calculate_portfolio_metrics():
     """Calculate ROI and Max Drawdown."""
@@ -191,7 +183,6 @@ def calculate_portfolio_metrics():
 
     return roi, max_drawdown
 
-
 def calculate_profit_loss(symbol, current_price):
     """Calculate profit or loss for a position."""
     if symbol in st.session_state.positions:
@@ -203,13 +194,27 @@ def calculate_profit_loss(symbol, current_price):
     else:
         return 0.0
 
-
 def plot_balance_history():
     """Plot the account balance over time."""
     df = pd.DataFrame(st.session_state.balance_history)
     fig = px.line(df, x='Date', y='Balance', title='Account Balance History')
     return fig
 
+def display_signals_table(signals):
+    """Display a table with market signals."""
+    signals_df = pd.DataFrame(signals)
+    
+    if not signals_df.empty:
+        st.subheader("Signals")
+        st.dataframe(
+            signals_df.style.applymap(
+                lambda x: 'background-color: lightgreen' if isinstance(x, str) and 'Buy' in x else (
+                    'background-color: pink' if isinstance(x, str) and 'Sell' in x else ''),
+                subset=['Recommended Action']
+            )
+        )
+    else:
+        st.write("No signals to display.")
 
 def main():
     st.title("Enhanced Multi-Asset Trading Bot with Machine Learning")
@@ -300,8 +305,9 @@ def main():
                 signals_list.append({
                     'Symbol': symbol,
                     'Current Price': current_price,
-                    'Model Accuracy': f"{accuracy*100:.2f}%",
-                    'Recommended Action': action,
+                    'Buy at Price': latest_data['Close'] if action == 'Buy' else "N/A",
+                    'Sell at Price': latest_data['Close'] if action == 'Sell' else "N/A",
+                    'Exit Trade at Price': "N/A",  # Placeholder for exit logic
                     'Profit/Loss': profit_loss
                 })
 
@@ -314,92 +320,7 @@ def main():
             progress_bar.progress((idx + 1) / total_symbols)
 
         # Display signals in a table
-        signals_df = pd.DataFrame(signals_list)
-        if not signals_df.empty:
-            signals_df = signals_df.sort_values(
-                by='Model Accuracy', ascending=False)
-            st.subheader("Market Signals")
-            st.dataframe(signals_df.style.applymap(
-                lambda x: 'background-color: lightgreen' if x == 'Buy' else (
-                    'background-color: pink' if x == 'Sell' else ''),
-                subset=['Recommended Action']
-            ))
-        else:
-            st.write("No signals to display.")
-            
-            # Add Signals Table Section
-def display_signals_table(data, open_positions, trade_history):
-    """
-    Display a table with the following columns:
-    Symbol, Current Price, Buy at Price, Sell at Price, Exit Trade at Price, Profit/Loss.
-    """
-    signals_list = []
-
-    # Loop through each symbol and calculate details
-    for symbol, df in data.items():
-        if not df.empty:
-            # Get the current price (most recent Close value)
-            current_price = df['Close'].iloc[-1]
-
-            # Check if there's an open position for the symbol
-            if symbol in open_positions and open_positions[symbol]:
-                position = open_positions[symbol]
-                buy_price = position['Buy_Price']
-                quantity = position['Quantity']
-                
-                # Calculate profit/loss for open positions
-                profit_loss = (current_price - buy_price) * quantity
-                signals_list.append({
-                    "Symbol": symbol,
-                    "Current Price": f"${current_price:.2f}",
-                    "Buy at Price": f"${buy_price:.2f}",
-                    "Sell at Price": "N/A",  # No sell action yet
-                    "Exit Trade at Price": "N/A",  # Exit condition not met
-                    "Profit/Loss": f"${profit_loss:.2f}"
-                })
-            else:
-                # Check trade history for the most recent trade of this symbol
-                trades = [trade for trade in trade_history if trade['Ticker'] == symbol]
-                if trades:
-                    latest_trade = trades[-1]  # Last trade for the symbol
-                    buy_price = latest_trade['Buy_Price']
-                    sell_price = latest_trade['Sell_Price']
-                    profit_loss = latest_trade['Profit']
-                    signals_list.append({
-                        "Symbol": symbol,
-                        "Current Price": f"${current_price:.2f}",
-                        "Buy at Price": f"${buy_price:.2f}",
-                        "Sell at Price": f"${sell_price:.2f}",
-                        "Exit Trade at Price": f"${sell_price:.2f}",
-                        "Profit/Loss": f"${profit_loss:.2f}"
-                    })
-                else:
-                    # No trades or open positions for this symbol
-                    signals_list.append({
-                        "Symbol": symbol,
-                        "Current Price": f"${current_price:.2f}",
-                        "Buy at Price": "N/A",
-                        "Sell at Price": "N/A",
-                        "Exit Trade at Price": "N/A",
-                        "Profit/Loss": "N/A"
-                    })
-
-    # Convert the signals list to a DataFrame
-    signals_df = pd.DataFrame(signals_list)
-
-    # Display the table
-    if not signals_df.empty:
-        st.subheader("Signals")
-        st.dataframe(
-            signals_df.style.applymap(
-                lambda x: 'background-color: lightgreen' if isinstance(x, str) and '$' in x and '-' not in x else (
-                    'background-color: pink' if isinstance(x, str) and '$' in x and '-' in x else ''),
-                subset=['Profit/Loss']
-            )
-        )
-    else:
-        st.write("No signals to display.")
-
+        display_signals_table(signals_list)
 
         # Display current positions
         st.subheader("Current Positions")
@@ -447,7 +368,6 @@ def display_signals_table(data, open_positions, trade_history):
         # Display balance history chart
         st.subheader("Account Balance History")
         st.plotly_chart(plot_balance_history())
-
 
 if __name__ == "__main__":
     main()
