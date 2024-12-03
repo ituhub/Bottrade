@@ -3,9 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
-import plotly.graph_objects as go
 import os
-import requests
 from datetime import datetime, timedelta
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
@@ -202,15 +200,21 @@ def plot_balance_history():
 
 def display_signals_table(signals):
     """Display a table with market signals."""
-    signals_df = pd.DataFrame(signals)
-    
-    if not signals_df.empty:
+    if signals:
+        signals_df = pd.DataFrame(signals)
+        # Ensure all expected columns are present
+        expected_columns = ['Symbol', 'Current Price', 'Buy at Price', 'Sell at Price', 'Exit Trade at Price', 'Profit/Loss']
+        for col in expected_columns:
+            if col not in signals_df.columns:
+                signals_df[col] = "N/A"
+
+        # Apply styling
         st.subheader("Signals")
         st.dataframe(
             signals_df.style.applymap(
                 lambda x: 'background-color: lightgreen' if isinstance(x, str) and 'Buy' in x else (
                     'background-color: pink' if isinstance(x, str) and 'Sell' in x else ''),
-                subset=['Recommended Action']
+                subset=['Profit/Loss']
             )
         )
     else:
