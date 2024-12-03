@@ -4,6 +4,8 @@ import numpy as np
 import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
+import os
+import requests
 from datetime import datetime, timedelta
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
@@ -14,6 +16,12 @@ COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X", "USDCAD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "XRP-USD",
                   "ADA-USD", "DOT-USD", "LINK-USD", "LTC-USD"]
+
+# Retrieve API key
+api_key = os.getenv('FMP_API_KEY')
+if not api_key:
+    st.error("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
+    st.stop()
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
