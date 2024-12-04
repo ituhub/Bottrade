@@ -5,7 +5,7 @@ import yfinance as yf
 import plotly.express as px
 import os
 from datetime import datetime, timedelta
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 from xgboost import XGBClassifier
 from sklearn.metrics import classification_report
 
@@ -39,7 +39,6 @@ def calculate_signals(data):
     data.sort_index(inplace=True)
 
     # Add technical indicators
-    # Moving Averages
     data['SMA20'] = data['Close'].rolling(window=20).mean()
     data['SMA50'] = data['Close'].rolling(window=50).mean()
     data['EMA20'] = data['Close'].ewm(span=20, adjust=False).mean()
@@ -68,6 +67,7 @@ def calculate_signals(data):
     # Feature Engineering
     data['Price_Change'] = data['Close'].pct_change()
     data['Volatility'] = data['Price_Change'].rolling(window=10).std()
+    data['Momentum'] = data['Close'].diff(4)  # Adding momentum indicator
 
     # Drop NaN values
     data.dropna(inplace=True)
@@ -82,7 +82,7 @@ def prepare_ml_data(data):
     data.dropna(inplace=True)
 
     features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD',
-                'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility']
+                'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
     if not all(feature in data.columns for feature in features):
         return None, None  # Missing features
 
@@ -92,18 +92,17 @@ def prepare_ml_data(data):
     return X, y
 
 def train_ml_model(X, y):
-    """Train the XGBoost model."""
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False)
-    model = XGBClassifier(eval_metric='logloss')
-    model.fit(X_train, y_train)
+    """Train the XGBoost model with cross-validation."""
+    model = XGBClassifier(eval_metric='logloss', use_label_encoder=False, n_estimators=100, learning_rate=0.1)
+    
+    # Perform cross-validation
+    scores = cross_val_score(model, X, y, cv=5, scoring='accuracy')
+    avg_accuracy = scores.mean()
 
-    # Evaluate the model
-    y_pred = model.predict(X_test)
-    report = classification_report(y_test, y_pred, output_dict=True)
-    accuracy = report['accuracy']
+    # Fit the model
+    model.fit(X, y)
 
-    return model, accuracy
+    return model, avg_accuracy
 
 def execute_trade(symbol, action, price, amount):
     """Execute buy or sell orders."""
@@ -113,7 +112,6 @@ def execute_trade(symbol, action, price, amount):
             st.session_state.balance -= total_cost
             if symbol in st.session_state.positions:
                 st.session_state.positions[symbol]['quantity'] += amount
-                # Update to latest price
                 st.session_state.positions[symbol]['cost_basis'] = price
             else:
                 st.session_state.positions[symbol] = {
@@ -125,8 +123,7 @@ def execute_trade(symbol, action, price, amount):
                 'Price': price,
                 'Amount': amount
             })
-            st.session_state.stop_loss[symbol] = price * \
-                (1 - st.session_state.user_stop_loss_pct)
+            st.session_state.stop_loss[symbol] = price * (1 - st.session_state.user_stop_loss_pct)
             st.session_state.balance_history.append(
                 {'Date': datetime.now(), 'Balance': st.session_state.balance})
             return True
@@ -174,8 +171,7 @@ def calculate_portfolio_metrics():
     initial_balance = st.session_state.initial_balance
     roi = (total_value - initial_balance) / initial_balance * 100
 
-    portfolio_series = pd.Series([entry['Balance']
-                                  for entry in st.session_state.balance_history])
+    portfolio_series = pd.Series([entry['Balance'] for entry in st.session_state.balance_history])
     cumulative_max = portfolio_series.cummax()
     drawdowns = (cumulative_max - portfolio_series) / cumulative_max
     max_drawdown = drawdowns.max() * 100
@@ -279,8 +275,7 @@ def main():
                 data = calculate_signals(data)
                 X, y = prepare_ml_data(data)
                 if X is None or y is None:
-                    st.warning(
-                        f"Skipping {symbol} due to insufficient data or missing features.")
+                    st.warning(f"Skipping {symbol} due to insufficient data or missing features.")
                     continue
 
                 model, accuracy = train_ml_model(X, y)
@@ -288,7 +283,7 @@ def main():
 
                 latest_data = data.iloc[-1]
                 features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD',
-                            'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility']
+                            'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
                 X_latest = latest_data[features].values.reshape(1, -1)
                 prediction = model.predict(X_latest)[0]
 
@@ -303,8 +298,7 @@ def main():
                 elif action == 'Sell':
                     if symbol in st.session_state.positions:
                         amount_to_sell = st.session_state.positions[symbol]['quantity']
-                        execute_trade(symbol, 'Sell',
-                                      current_price, amount_to_sell)
+                        execute_trade(symbol, 'Sell', current_price, amount_to_sell)
 
                 # Calculate profit/loss
                 profit_loss = calculate_profit_loss(symbol, current_price)
@@ -370,7 +364,7 @@ def main():
         st.write(f"Max Drawdown: {max_drawdown:.2f}%")
         if model_accuracies:
             avg_accuracy = sum(model_accuracies) / len(model_accuracies)
-            st.write(f"Average Model Accuracy: {avg_accuracy*100:.2f}%")
+            st.write(f"Average Model Accuracy: {avg_accuracy * 100:.2f}%")
 
         # Display balance history chart
         st.subheader("Account Balance History")
