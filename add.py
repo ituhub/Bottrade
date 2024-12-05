@@ -10,47 +10,92 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error
 
-# Constants
+import os
+import requests
+
+# Constants for symbols
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
-def get_data(symbol, start_date, end_date):
+def get_data_from_fmp_api(api_key, endpoint):
     """
-    Fetch historical data from FMP API.
-    """
-    api_key = os.getenv('FMP_API_KEY')
-    if not api_key:
-        raise ValueError("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
+    Fetches data from the Financial Modeling Prep API.
 
-    # FMP API endpoint for historical price data
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
+    Parameters:
+        api_key (str): Your API key for FMP.
+        endpoint (str): The specific API endpoint to call.
+
+    Returns:
+        list: A list of data returned from the API, or None if there's an error.
+    """
+    url = f'https://financialmodelingprep.com/api/v3/{endpoint}?apikey={api_key}'
     
-    # Make the API request
-    response = requests.get(url)
-    
-    # Handle the response
-    if response.status_code == 200:
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses
         data = response.json()
-        if 'historical' in data:
-            # Convert the data into a Pandas DataFrame
-            df = pd.DataFrame(data['historical'])
-            df['date'] = pd.to_datetime(df['date'])  # Ensure date is in datetime format
-            df.set_index('date', inplace=True)
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
 
-            # Debugging: print the DataFrame columns
-            print("DataFrame columns:", df.columns.tolist())
+def modify_symbols(data):
+    """
+    Modifies the symbols in the data.
 
-            # Check if 'Close' or 'close' column exists
-            if 'close' not in df.columns and 'Close' not in df.columns:
-                raise ValueError(f"'Close' column not found for symbol: {symbol}. Data: {data}")
-                
-            return df
-        else:
-            raise ValueError(f"No historical data found for symbol: {symbol}")
+    Parameters:
+        data (list): The list of data to modify.
+
+    Returns:
+        list: List of modified data.
+    """
+    for item in data:
+        item['symbol'] += '_NEW'  # Example modification
+    return data
+
+# Example usage
+if __name__ == "__main__":
+    API_KEY = os.environ.get('FMP_API_KEY')  # Fetch API key from environment variable
+    if API_KEY is None:
+        print("Error: API key not found. Please set the FMP_API_KEY environment variable.")
     else:
-        raise ConnectionError(f"Failed to fetch data for {symbol}. Status code: {response.status_code}, Response: {response.text}")
+        # Fetch data for each type
+        commodities = get_data_from_fmp_api(API_KEY, 'commodities')
+        forex_data = get_data_from_fmp_api(API_KEY, 'forex')
+        crypto_data = get_data_from_fmp_api(API_KEY, 'crypto')
+        indices_data = get_data_from_fmp_api(API_KEY, 'market/indices')
+
+        # Print current commodities
+        if commodities:
+            print("Current Commodities:")
+            for commodity in commodities:
+                print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
+
+        # Print current forex data
+        if forex_data:
+            print("\nCurrent Forex Data:")
+            for forex in forex_data:
+                print(f"Pair: {forex['symbol']}, Price: {forex['price']}")
+
+        # Print current crypto data
+        if crypto_data:
+            print("\nCurrent Crypto Data:")
+            for crypto in crypto_data:
+                print(f"Currency: {crypto['symbol']}, Price: {crypto['price']}")
+
+        # Print current indices data
+        if indices_data:
+            print("\nCurrent Indices Data:")
+            for index in indices_data:
+                print(f"Index: {index['symbol']}, Price: {index['price']}")
+
+        # Modify symbols as needed
+        modified_commodities = modify_symbols(commodities)
+        print("\nModified Commodities:")
+        for commodity in modified_commodities:
+            print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
