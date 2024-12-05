@@ -39,9 +39,12 @@ def get_data(symbol, start_date, end_date):
             df['date'] = pd.to_datetime(df['date'])  # Ensure date is in datetime format
             df.set_index('date', inplace=True)
 
+            # Debugging: print the DataFrame columns
+            print("DataFrame columns:", df.columns.tolist())
+
             # Check if 'Close' or 'close' column exists
             if 'close' not in df.columns and 'Close' not in df.columns:
-                raise ValueError(f"'Close' column not found for symbol: {symbol}. Data may be missing.")
+                raise ValueError(f"'Close' column not found for symbol: {symbol}. Data: {data}")
                 
             return df
         else:
