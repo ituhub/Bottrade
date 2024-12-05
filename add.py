@@ -18,8 +18,7 @@ INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 # Retrieve API key
 api_key = os.getenv('FMP_API_KEY')
 if not api_key:
-    st.error("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
-    st.stop()
+    st.warning("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
@@ -198,21 +197,29 @@ def display_signals_table(signals):
     """Display a table with market signals."""
     if signals:
         signals_df = pd.DataFrame(signals)
+
         # Ensure all expected columns are present
         expected_columns = ['Symbol', 'Current Price', 'Buy at Price', 'Sell at Price', 'Stop Loss', 'Predicted Price Next 24h']
         for col in expected_columns:
             if col not in signals_df.columns:
-                signals_df[col] = "N/A"
+                signals_df[col] = np.nan
+
+        # Convert columns to numeric where appropriate
+        numeric_columns = ['Current Price', 'Buy at Price', 'Sell at Price', 'Stop Loss', 'Predicted Price Next 24h']
+        for col in numeric_columns:
+            signals_df[col] = pd.to_numeric(signals_df[col], errors='coerce')
 
         # Apply styling
         st.subheader("Signals")
-        st.dataframe(signals_df.style.format({
-            'Current Price': '${:,.2f}',
-            'Buy at Price': '${:,.2f}',
-            'Sell at Price': '${:,.2f}',
-            'Stop Loss': '${:,.2f}',
-            'Predicted Price Next 24h': '${:,.2f}'
-        }))
+        st.dataframe(
+            signals_df.style.format({
+                'Current Price': '${:,.2f}',
+                'Buy at Price': '${:,.2f}',
+                'Sell at Price': '${:,.2f}',
+                'Stop Loss': '${:,.2f}',
+                'Predicted Price Next 24h': '${:,.2f}'
+            }, na_rep='N/A')
+        )
     else:
         st.write("No signals to display.")
 
@@ -309,9 +316,9 @@ def main():
                 signals_list.append({
                     'Symbol': symbol,
                     'Current Price': current_price,
-                    'Buy at Price': current_price if action == 'Buy' else "N/A",
-                    'Sell at Price': current_price if action == 'Sell' else "N/A",
-                    'Stop Loss': stop_loss_price,
+                    'Buy at Price': current_price if action == 'Buy' else np.nan,
+                    'Sell at Price': current_price if action == 'Sell' else np.nan,
+                    'Stop Loss': stop_loss_price if action == 'Buy' else np.nan,
                     'Predicted Price Next 24h': predicted_price
                 })
 
@@ -366,7 +373,7 @@ def main():
 
         # Display account information
         st.subheader("Account Information")
-        st.write(f"Current Balance: ${st.session_state.balance:.2f}")
+        st.write(f"Current Balance: ${st.session_state.balance:,.2f}")
         roi, max_drawdown = calculate_portfolio_metrics()
         st.write(f"ROI: {roi:.2f}%")
         st.write(f"Max Drawdown: {max_drawdown:.2f}%")
