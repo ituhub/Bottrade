@@ -29,9 +29,15 @@ if 'trade_history' not in st.session_state:
 if 'stop_loss' not in st.session_state:
     st.session_state.stop_loss = {}
 
-def get_data(symbol, start_date, end_date):
-    data = yf.download(symbol, start=start_date, end=end_date)
-    return data
+def get_data_from_fmp(symbol, start_date, end_date):
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        # Process data into a Pandas DataFrame
+    else:
+        st.error(f"Failed to fetch data for {symbol} from FMP API.")
+
 
 def calculate_signals(data):
     """Calculate technical indicators and generate signals."""
