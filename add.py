@@ -16,10 +16,34 @@ FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
-# Retrieve API key
-api_key = os.getenv('FMP_API_KEY')
-if not api_key:
-    st.warning("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
+def get_data(symbol, start_date, end_date):
+    """
+    Fetch historical data from FMP API.
+    """
+    api_key = os.getenv('FMP_API_KEY')
+    if not api_key:
+        raise ValueError("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
+
+    # FMP API endpoint for historical price data
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
+    
+    # Make the API request
+    response = requests.get(url)
+    
+    # Handle the response
+    if response.status_code == 200:
+        data = response.json()
+        if 'historical' in data:
+            # Convert the data into a Pandas DataFrame
+            df = pd.DataFrame(data['historical'])
+            df['date'] = pd.to_datetime(df['date'])  # Ensure date is in datetime format
+            df.set_index('date', inplace=True)
+            return df
+        else:
+            raise ValueError(f"No historical data found for symbol: {symbol}")
+    else:
+        raise ConnectionError(f"Failed to fetch data for {symbol}. Status code: {response.status_code}, Response: {response.text}")
+
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
@@ -28,16 +52,6 @@ if 'trade_history' not in st.session_state:
     st.session_state.trade_history = []
 if 'stop_loss' not in st.session_state:
     st.session_state.stop_loss = {}
-
-def get_data_from_fmp(symbol, start_date, end_date):
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        # Process data into a Pandas DataFrame
-    else:
-        st.error(f"Failed to fetch data for {symbol} from FMP API.")
-
 
 def calculate_signals(data):
     """Calculate technical indicators and generate signals."""
