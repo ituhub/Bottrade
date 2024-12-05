@@ -6,8 +6,8 @@ import plotly.express as px
 import os
 from datetime import datetime, timedelta
 from sklearn.model_selection import train_test_split, cross_val_score
-from xgboost import XGBClassifier
-from sklearn.metrics import classification_report
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_squared_error
 
 # Constants
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
@@ -78,7 +78,6 @@ def prepare_ml_data(data):
     """Prepare data for machine learning."""
     data = data.copy()
     data['Future_Close'] = data['Close'].shift(-1)
-    data['Target'] = np.where(data['Future_Close'] > data['Close'], 1, 0)
     data.dropna(inplace=True)
 
     features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD',
@@ -87,22 +86,22 @@ def prepare_ml_data(data):
         return None, None  # Missing features
 
     X = data[features]
-    y = data['Target']
+    y = data['Future_Close']  # Regression target
 
     return X, y
 
 def train_ml_model(X, y):
-    """Train the XGBoost model with cross-validation."""
-    model = XGBClassifier(eval_metric='logloss', use_label_encoder=False, n_estimators=100, learning_rate=0.1)
-    
-    # Perform cross-validation
-    scores = cross_val_score(model, X, y, cv=5, scoring='accuracy')
-    avg_accuracy = scores.mean()
+    """Train the XGBoost model for regression with cross-validation."""
+    model = XGBRegressor(n_estimators=100, learning_rate=0.1)
+
+    # Perform cross-validation with RMSE scoring
+    scores = cross_val_score(model, X, y, cv=5, scoring='neg_mean_squared_error')
+    avg_rmse = np.sqrt(-scores.mean())
 
     # Fit the model
     model.fit(X, y)
 
-    return model, avg_accuracy
+    return model, avg_rmse
 
 def execute_trade(symbol, action, price, amount):
     """Execute buy or sell orders."""
@@ -200,20 +199,20 @@ def display_signals_table(signals):
     if signals:
         signals_df = pd.DataFrame(signals)
         # Ensure all expected columns are present
-        expected_columns = ['Symbol', 'Current Price', 'Buy at Price', 'Sell at Price', 'Exit Trade at Price', 'Profit/Loss']
+        expected_columns = ['Symbol', 'Current Price', 'Buy at Price', 'Sell at Price', 'Stop Loss', 'Predicted Price Next 24h']
         for col in expected_columns:
             if col not in signals_df.columns:
                 signals_df[col] = "N/A"
 
         # Apply styling
         st.subheader("Signals")
-        st.dataframe(
-            signals_df.style.applymap(
-                lambda x: 'background-color: lightgreen' if isinstance(x, str) and 'Buy' in x else (
-                    'background-color: pink' if isinstance(x, str) and 'Sell' in x else ''),
-                subset=['Profit/Loss']
-            )
-        )
+        st.dataframe(signals_df.style.format({
+            'Current Price': '${:,.2f}',
+            'Buy at Price': '${:,.2f}',
+            'Sell at Price': '${:,.2f}',
+            'Stop Loss': '${:,.2f}',
+            'Predicted Price Next 24h': '${:,.2f}'
+        }))
     else:
         st.write("No signals to display.")
 
@@ -260,7 +259,7 @@ def main():
     if st.sidebar.button("Run Analysis"):
         all_data = {}
         signals_list = []
-        model_accuracies = []
+        model_scores = []
 
         progress_bar = st.progress(0)
         total_symbols = len(symbols)
@@ -278,19 +277,25 @@ def main():
                     st.warning(f"Skipping {symbol} due to insufficient data or missing features.")
                     continue
 
-                model, accuracy = train_ml_model(X, y)
-                model_accuracies.append(accuracy)
+                model, rmse = train_ml_model(X, y)
+                model_scores.append(rmse)
 
                 latest_data = data.iloc[-1]
                 features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD',
                             'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
                 X_latest = latest_data[features].values.reshape(1, -1)
-                prediction = model.predict(X_latest)[0]
+                predicted_price = model.predict(X_latest)[0]
 
                 current_price = latest_data['Close']
 
-                # Determine recommended action based on prediction
-                action = 'Buy' if prediction == 1 else 'Sell'
+                # Determine recommended action based on the predicted price movement
+                if predicted_price > current_price:
+                    action = 'Buy'
+                else:
+                    action = 'Sell'
+
+                # Calculate stop loss price
+                stop_loss_price = current_price * (1 - st.session_state.user_stop_loss_pct)
 
                 # Execute trade automatically
                 if action == 'Buy':
@@ -300,16 +305,14 @@ def main():
                         amount_to_sell = st.session_state.positions[symbol]['quantity']
                         execute_trade(symbol, 'Sell', current_price, amount_to_sell)
 
-                # Calculate profit/loss
-                profit_loss = calculate_profit_loss(symbol, current_price)
-
+                # Prepare signal data
                 signals_list.append({
                     'Symbol': symbol,
                     'Current Price': current_price,
-                    'Buy at Price': latest_data['Close'] if action == 'Buy' else "N/A",
-                    'Sell at Price': latest_data['Close'] if action == 'Sell' else "N/A",
-                    'Exit Trade at Price': "N/A",  # Placeholder for exit logic
-                    'Profit/Loss': profit_loss
+                    'Buy at Price': current_price if action == 'Buy' else "N/A",
+                    'Sell at Price': current_price if action == 'Sell' else "N/A",
+                    'Stop Loss': stop_loss_price,
+                    'Predicted Price Next 24h': predicted_price
                 })
 
                 # Check stop-loss
@@ -344,7 +347,12 @@ def main():
                 })
         if positions_list:
             positions_df = pd.DataFrame(positions_list)
-            st.dataframe(positions_df)
+            st.dataframe(positions_df.style.format({
+                'Cost Basis': '${:,.2f}',
+                'Current Price': '${:,.2f}',
+                'Market Value': '${:,.2f}',
+                'Profit/Loss': '${:,.2f}'
+            }))
         else:
             st.write("No positions currently held.")
 
@@ -362,9 +370,9 @@ def main():
         roi, max_drawdown = calculate_portfolio_metrics()
         st.write(f"ROI: {roi:.2f}%")
         st.write(f"Max Drawdown: {max_drawdown:.2f}%")
-        if model_accuracies:
-            avg_accuracy = sum(model_accuracies) / len(model_accuracies)
-            st.write(f"Average Model Accuracy: {avg_accuracy * 100:.2f}%")
+        if model_scores:
+            avg_rmse = sum(model_scores) / len(model_scores)
+            st.write(f"Average Model RMSE: ${avg_rmse:.2f}")
 
         # Display balance history chart
         st.subheader("Account Balance History")
