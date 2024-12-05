@@ -38,12 +38,16 @@ def get_data(symbol, start_date, end_date):
             df = pd.DataFrame(data['historical'])
             df['date'] = pd.to_datetime(df['date'])  # Ensure date is in datetime format
             df.set_index('date', inplace=True)
+
+            # Check if 'Close' column exists
+            if 'close' not in df.columns:
+                raise ValueError(f"'Close' column not found for symbol: {symbol}. Data may be missing.")
+                
             return df
         else:
             raise ValueError(f"No historical data found for symbol: {symbol}")
     else:
         raise ConnectionError(f"Failed to fetch data for {symbol}. Status code: {response.status_code}, Response: {response.text}")
-
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
