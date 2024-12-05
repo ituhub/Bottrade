@@ -24,25 +24,21 @@ def get_data(symbol, start_date, end_date):
     if not api_key:
         raise ValueError("FMP API key not found. Please set it as an environment variable 'FMP_API_KEY'.")
 
-    # FMP API endpoint for historical price data
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
     
-    # Make the API request
     response = requests.get(url)
     
-    # Handle the response
     if response.status_code == 200:
         data = response.json()
+        print(data)  # Add this line to inspect the response structure
         if 'historical' in data:
-            # Convert the data into a Pandas DataFrame
             df = pd.DataFrame(data['historical'])
-            df['date'] = pd.to_datetime(df['date'])  # Ensure date is in datetime format
+            df['date'] = pd.to_datetime(df['date'])
             df.set_index('date', inplace=True)
 
-            # Check if 'Close' column exists
-            if 'close' not in df.columns:
+            # Check for 'Close' or 'close' column
+            if 'Close' not in df.columns and 'close' not in df.columns:
                 raise ValueError(f"'Close' column not found for symbol: {symbol}. Data may be missing.")
-                
             return df
         else:
             raise ValueError(f"No historical data found for symbol: {symbol}")
