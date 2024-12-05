@@ -10,10 +10,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error
 
-import os
-import requests
-
-# Constants for symbols
+# Constants for symbols (these are just examples)
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
@@ -28,7 +25,7 @@ def get_data_from_fmp_api(api_key, endpoint):
         endpoint (str): The specific API endpoint to call.
 
     Returns:
-        list: A list of data returned from the API, or None if there's an error.
+        list or dict: A list or dictionary of data returned from the API, or None if there's an error.
     """
     url = f'https://financialmodelingprep.com/api/v3/{endpoint}?apikey={api_key}'
     
@@ -72,30 +69,42 @@ if __name__ == "__main__":
             print("Current Commodities:")
             for commodity in commodities:
                 print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
+        else:
+            print("No commodities data available or error fetching commodities.")
 
         # Print current forex data
         if forex_data:
             print("\nCurrent Forex Data:")
-            for forex in forex_data:
-                print(f"Pair: {forex['symbol']}, Price: {forex['price']}")
+            if isinstance(forex_data, list):
+                for forex in forex_data:
+                    print(f"Pair: {forex['symbol']}, Price: {forex['price']}")
+            else:
+                print("Forex data is not a list. Response:", forex_data)
+        else:
+            print("No forex data available or error fetching forex.")
 
         # Print current crypto data
         if crypto_data:
             print("\nCurrent Crypto Data:")
             for crypto in crypto_data:
                 print(f"Currency: {crypto['symbol']}, Price: {crypto['price']}")
+        else:
+            print("No crypto data available or error fetching crypto.")
 
         # Print current indices data
         if indices_data:
             print("\nCurrent Indices Data:")
             for index in indices_data:
                 print(f"Index: {index['symbol']}, Price: {index['price']}")
+        else:
+            print("No indices data available or error fetching indices.")
 
         # Modify symbols as needed
-        modified_commodities = modify_symbols(commodities)
-        print("\nModified Commodities:")
-        for commodity in modified_commodities:
-            print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
+        if commodities:
+            modified_commodities = modify_symbols(commodities)
+            print("\nModified Commodities:")
+            for commodity in modified_commodities:
+                print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
