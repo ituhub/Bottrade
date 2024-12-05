@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import plotly.express as px
 import os
+import requests
 from datetime import datetime, timedelta
 from sklearn.model_selection import train_test_split, cross_val_score
 from xgboost import XGBRegressor
