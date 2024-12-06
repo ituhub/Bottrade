@@ -256,11 +256,17 @@ def display_signals_table(signals):
     else:
         st.write("No signals to display.")
 
-def get_data(symbol, start_date, end_date):
-    """Fetch historical data for a given symbol using yfinance."""
+# Function to fetch historical data using FMP API
+def get_historical_data(symbol, start_date, end_date):
+    """Fetch historical data for a given symbol using the FMP API."""
+    api_key = os.getenv("FMP_API_KEY")  # Fetch the API key from environment variables
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
+    
     try:
-        data = yf.download(symbol, start=start_date, end=end_date)
-        return data
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad HTTP responses
+        data = response.json()
+        return pd.DataFrame(data['historical'])  # Convert to DataFrame
     except Exception as e:
         st.error(f"Error fetching data for {symbol}: {e}")
         return pd.DataFrame()  # Return empty DataFrame on error
