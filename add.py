@@ -22,6 +22,31 @@ api_endpoints = {
     "commodities": "https://financialmodelingprep.com/api/v3/symbol/available-commodities?apikey=YOUR_API_KEY"
 }
 
+def get_data(symbol, start_date, end_date):
+    """Fetch historical data for a given symbol."""
+    api_key = os.getenv("FMP_API_KEY")  # Fetch the API key from environment variables
+    if not api_key:
+        st.error("API key not found in environment variables. Set 'FMP_API_KEY'.")
+        return pd.DataFrame()  # Return empty DataFrame if API key is missing
+
+    # Construct the URL for historical data
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?from={start_date}&to={end_date}&apikey={api_key}"
+    
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad HTTP responses
+        data = response.json()
+        
+        # Check if 'historical' data exists
+        if 'historical' in data:
+            return pd.DataFrame(data['historical'])  # Convert to DataFrame
+        else:
+            st.error(f"No historical data found for {symbol}.")
+            return pd.DataFrame()  # Return empty DataFrame if no data found
+    except Exception as e:
+        st.error(f"Error fetching data for {symbol}: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on error
+
 # Function to fetch data from each endpoint
 def fetch_data(endpoints):
     data = {}
@@ -48,14 +73,7 @@ def fetch_data(endpoints):
 
     return data
 
-# Fetch data from all endpoints
-if __name__ == "__main__":
-    fetched_data = fetch_data(api_endpoints)
-    for key, value in fetched_data.items():
-        print(f"\n{key.upper()}:\n{value}")
-
-
-# Initialize session state variables if they don't exist
+    # Initialize session state variables if they don't exist
 if 'positions' not in st.session_state:
     st.session_state.positions = {}
 if 'trade_history' not in st.session_state:
