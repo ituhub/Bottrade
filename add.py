@@ -9,33 +9,52 @@ from datetime import datetime, timedelta
 from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
 
-# Constants for symbols
+# Constants for symbols (for use elsewhere in your program)
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
-# List of API endpoints (replace YOUR_API_KEY in the fetch_data function)
-api_endpoints = [
-    "https://financialmodelingprep.com/api/v3/symbol/available-cryptocurrencies?apikey=YOUR_API_KEY",
-    "https://financialmodelingprep.com/api/v3/symbol/available-forex-currency-pairs?apikey=YOUR_API_KEY",
-    "https://financialmodelingprep.com/api/v3/symbol/available-indexes?apikey=YOUR_API_KEY",
-    "https://financialmodelingprep.com/api/v3/symbol/available-commodities?apikey=YOUR_API_KEY"
-]
+# List of API endpoints
+api_endpoints = {
+    "cryptocurrencies": "https://financialmodelingprep.com/api/v3/symbol/available-cryptocurrencies?apikey=YOUR_API_KEY",
+    "forex": "https://financialmodelingprep.com/api/v3/symbol/available-forex-currency-pairs?apikey=YOUR_API_KEY",
+    "indexes": "https://financialmodelingprep.com/api/v3/symbol/available-indexes?apikey=YOUR_API_KEY",
+    "commodities": "https://financialmodelingprep.com/api/v3/symbol/available-commodities?apikey=YOUR_API_KEY"
+}
 
 # Function to fetch data from each endpoint
 def fetch_data(endpoints):
     data = {}
     api_key = os.getenv("FMP_API_KEY")  # Fetch the API key from environment variables
-    for url in endpoints:
+    
+    if not api_key:
+        raise ValueError("API key not found in environment variables. Set 'FMP_API_KEY'.")
+
+    for key, url in endpoints.items():
         try:
-            response = requests.get(url.replace("YOUR_API_KEY", api_key))
-            response.raise_for_status()  # Raise an error for bad responses
-            data[url] = response.json()   # Store the response JSON
+            # Replace placeholder with actual API key
+            full_url = url.replace("YOUR_API_KEY", api_key)
+            
+            # Send the HTTP request
+            response = requests.get(full_url, headers={"User-Agent": "MyApp/1.0"})
+            response.raise_for_status()  # Raise an error for bad HTTP responses
+            
+            # Parse JSON and store in the dictionary
+            data[key] = response.json()
+        
         except requests.RequestException as e:
-            print(f"Error fetching data from {url}: {e}")
-            data[url] = None  # Store None for failed requests
+            print(f"Error fetching data from {key}: {e}")
+            data[key] = None  # Store None for failed requests
+
     return data
+
+# Fetch data from all endpoints
+if __name__ == "__main__":
+    fetched_data = fetch_data(api_endpoints)
+    for key, value in fetched_data.items():
+        print(f"\n{key.upper()}:\n{value}")
+
 
 # Initialize session state variables if they don't exist
 if 'positions' not in st.session_state:
