@@ -6,17 +6,16 @@ import plotly.express as px
 import os
 import requests
 from datetime import datetime, timedelta
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import cross_val_score
 from xgboost import XGBRegressor
-from sklearn.metrics import mean_squared_error
 
-# Constants for symbols (these are just examples)
+# Constants for symbols
 COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
-# List of API endpoints
+# List of API endpoints (replace YOUR_API_KEY in the fetch_data function)
 api_endpoints = [
     "https://financialmodelingprep.com/api/v3/symbol/available-cryptocurrencies?apikey=YOUR_API_KEY",
     "https://financialmodelingprep.com/api/v3/symbol/available-forex-currency-pairs?apikey=YOUR_API_KEY",
@@ -27,9 +26,10 @@ api_endpoints = [
 # Function to fetch data from each endpoint
 def fetch_data(endpoints):
     data = {}
+    api_key = os.getenv("FMP_API_KEY")  # Fetch the API key from environment variables
     for url in endpoints:
         try:
-            response = requests.get(url)
+            response = requests.get(url.replace("YOUR_API_KEY", api_key))
             response.raise_for_status()  # Raise an error for bad responses
             data[url] = response.json()   # Store the response JSON
         except requests.RequestException as e:
@@ -37,23 +37,15 @@ def fetch_data(endpoints):
             data[url] = None  # Store None for failed requests
     return data
 
-# Fetch and print data
-if __name__ == "__main__":
-    data = fetch_data(api_endpoints)
-    for url, content in data.items():
-        print(f"\nData from {url}:")
-        if content is not None:
-            print(content)
-        else:
-            print("Failed to retrieve data.")
-
-# Initialize session state variables
+# Initialize session state variables if they don't exist
 if 'positions' not in st.session_state:
     st.session_state.positions = {}
 if 'trade_history' not in st.session_state:
     st.session_state.trade_history = []
 if 'stop_loss' not in st.session_state:
     st.session_state.stop_loss = {}
+if 'balance_history' not in st.session_state:
+    st.session_state.balance_history = []
 
 def calculate_signals(data):
     """Calculate technical indicators and generate signals."""
@@ -246,6 +238,15 @@ def display_signals_table(signals):
     else:
         st.write("No signals to display.")
 
+def get_data(symbol, start_date, end_date):
+    """Fetch historical data for a given symbol using yfinance."""
+    try:
+        data = yf.download(symbol, start=start_date, end=end_date)
+        return data
+    except Exception as e:
+        st.error(f"Error fetching data for {symbol}: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on error
+
 def main():
     st.title("Enhanced Multi-Asset Trading Bot with Machine Learning")
 
@@ -257,8 +258,8 @@ def main():
             "Set Initial Balance", min_value=1000, value=100000, step=1000)
         st.session_state.initial_balance = initial_balance
         st.session_state.balance = initial_balance
-        st.session_state.balance_history = [
-            {'Date': datetime.now(), 'Balance': st.session_state.balance}]
+        st.session_state.balance_history.append(
+            {'Date': datetime.now(), 'Balance': st.session_state.balance})
     else:
         st.sidebar.write(
             f"Initial Balance: ${st.session_state.initial_balance:,.2f}")
@@ -319,10 +320,7 @@ def main():
                 current_price = latest_data['Close']
 
                 # Determine recommended action based on the predicted price movement
-                if predicted_price > current_price:
-                    action = 'Buy'
-                else:
-                    action = 'Sell'
+                action = 'Buy' if predicted_price > current_price else 'Sell'
 
                 # Calculate stop loss price
                 stop_loss_price = current_price * (1 - st.session_state.user_stop_loss_pct)
@@ -402,7 +400,7 @@ def main():
         st.write(f"Max Drawdown: {max_drawdown:.2f}%")
         if model_scores:
             avg_rmse = sum(model_scores) / len(model_scores)
-            st.write(f"Average Model RMSE: ${avg_rmse:.2f}")
+            st.write(f"Average Model RMSE: {avg_rmse:.2f}")
 
         # Display balance history chart
         st.subheader("Account Balance History")
