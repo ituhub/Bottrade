@@ -16,95 +16,36 @@ FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
-def get_data_from_fmp_api(api_key, endpoint):
-    """
-    Fetches data from the Financial Modeling Prep API.
+# List of API endpoints
+api_endpoints = [
+    "https://financialmodelingprep.com/api/v3/symbol/available-cryptocurrencies?apikey=YOUR_API_KEY",
+    "https://financialmodelingprep.com/api/v3/symbol/available-forex-currency-pairs?apikey=YOUR_API_KEY",
+    "https://financialmodelingprep.com/api/v3/symbol/available-indexes?apikey=YOUR_API_KEY",
+    "https://financialmodelingprep.com/api/v3/symbol/available-commodities?apikey=YOUR_API_KEY"
+]
 
-    Parameters:
-        api_key (str): Your API key for FMP.
-        endpoint (str): The specific API endpoint to call.
-
-    Returns:
-        list or dict: A list or dictionary of data returned from the API, or None if there's an error.
-    """
-    url = f'https://financialmodelingprep.com/api/v3/{endpoint}?apikey={api_key}'
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise an error for bad responses
-        data = response.json()
-        return data
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data: {e}")
-        return None
-
-def modify_symbols(data):
-    """
-    Modifies the symbols in the data.
-
-    Parameters:
-        data (list): The list of data to modify.
-
-    Returns:
-        list: List of modified data.
-    """
-    for item in data:
-        item['symbol'] += '_NEW'  # Example modification
+# Function to fetch data from each endpoint
+def fetch_data(endpoints):
+    data = {}
+    for url in endpoints:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()  # Raise an error for bad responses
+            data[url] = response.json()   # Store the response JSON
+        except requests.RequestException as e:
+            print(f"Error fetching data from {url}: {e}")
+            data[url] = None  # Store None for failed requests
     return data
 
-# Example usage
+# Fetch and print data
 if __name__ == "__main__":
-    API_KEY = os.environ.get('FMP_API_KEY')  # Fetch API key from environment variable
-    if API_KEY is None:
-        print("Error: API key not found. Please set the FMP_API_KEY environment variable.")
-    else:
-        # Fetch data for each type
-        commodities = get_data_from_fmp_api(API_KEY, 'commodities')
-        forex_data = get_data_from_fmp_api(API_KEY, 'forex')
-        crypto_data = get_data_from_fmp_api(API_KEY, 'crypto')
-        indices_data = get_data_from_fmp_api(API_KEY, 'market/indices')
-
-        # Print current commodities
-        if commodities:
-            print("Current Commodities:")
-            for commodity in commodities:
-                print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
+    data = fetch_data(api_endpoints)
+    for url, content in data.items():
+        print(f"\nData from {url}:")
+        if content is not None:
+            print(content)
         else:
-            print("No commodities data available or error fetching commodities.")
-
-        # Print current forex data
-        if forex_data:
-            print("\nCurrent Forex Data:")
-            if isinstance(forex_data, list):
-                for forex in forex_data:
-                    print(f"Pair: {forex['symbol']}, Price: {forex['price']}")
-            else:
-                print("Forex data is not a list. Response:", forex_data)
-        else:
-            print("No forex data available or error fetching forex.")
-
-        # Print current crypto data
-        if crypto_data:
-            print("\nCurrent Crypto Data:")
-            for crypto in crypto_data:
-                print(f"Currency: {crypto['symbol']}, Price: {crypto['price']}")
-        else:
-            print("No crypto data available or error fetching crypto.")
-
-        # Print current indices data
-        if indices_data:
-            print("\nCurrent Indices Data:")
-            for index in indices_data:
-                print(f"Index: {index['symbol']}, Price: {index['price']}")
-        else:
-            print("No indices data available or error fetching indices.")
-
-        # Modify symbols as needed
-        if commodities:
-            modified_commodities = modify_symbols(commodities)
-            print("\nModified Commodities:")
-            for commodity in modified_commodities:
-                print(f"Name: {commodity['name']}, Symbol: {commodity['symbol']}")
+            print("Failed to retrieve data.")
 
 # Initialize session state variables
 if 'positions' not in st.session_state:
