@@ -35,11 +35,14 @@ def get_data(symbol, start_date, end_date):
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
-        
-        if 'historical' in data:
+
+        # Debugging - print the response
+        st.write(f"Response for {symbol}: {data}")
+
+        if 'historical' in data and len(data['historical']) > 0:
             return pd.DataFrame(data['historical'])
         else:
-            st.error(f"No historical data found for {symbol}.")
+            st.error(f"No historical data found for {symbol}. Check if the symbol is correct.")
             return pd.DataFrame()
     except requests.RequestException as e:
         st.error(f"Error fetching data for {symbol}: {e}")
@@ -80,11 +83,11 @@ def calculate_signals(data):
     data.sort_index(inplace=True)
 
     # Add technical indicators
-    data['SMA20'] = data['Close'].rolling(window=20).mean()
-    data['SMA50'] = data['Close'].rolling(window=50).mean()
-    data['EMA20'] = data['Close'].ewm(span=20, adjust=False).mean()
+    data['SMA20'] = data['close'].rolling(window=20).mean()
+    data['SMA50'] = data['close'].rolling(window=50).mean()
+    data['EMA20'] = data['close'].ewm(span=20, adjust=False).mean()
 
-    delta = data['Close'].diff()
+    delta = data['close'].diff()
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
     up_avg = up.rolling(window=14).mean()
@@ -92,19 +95,19 @@ def calculate_signals(data):
     epsilon = 1e-6
     data['RSI'] = 100 - (100 / (1 + (up_avg / (down_avg + epsilon))))
 
-    exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+    exp1 = data['close'].ewm(span=12, adjust=False).mean()
+    exp2 = data['close'].ewm(span=26, adjust=False).mean()
     data['MACD'] = exp1 - exp2
     data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
 
-    data['BB_Mid'] = data['Close'].rolling(window=20).mean()
-    data['BB_Std'] = data['Close'].rolling(window=20).std()
+    data['BB_Mid'] = data['close'].rolling(window=20).mean()
+    data['BB_Std'] = data['close'].rolling(window=20).std()
     data['BB_Upper'] = data['BB_Mid'] + (2 * data['BB_Std'])
     data['BB_Lower'] = data['BB_Mid'] - (2 * data['BB_Std'])
 
-    data['Price_Change'] = data['Close'].pct_change()
+    data['Price_Change'] = data['close'].pct_change()
     data['Volatility'] = data['Price_Change'].rolling(window=10).std()
-    data['Momentum'] = data['Close'].diff(4)
+    data['Momentum'] = data['close'].diff(4)
 
     data.dropna(inplace=True)
 
@@ -113,10 +116,10 @@ def calculate_signals(data):
 def prepare_ml_data(data):
     """Prepare data for machine learning."""
     data = data.copy()
-    data['Future_Close'] = data['Close'].shift(-1)
+    data['Future_Close'] = data['close'].shift(-1)
     data.dropna(inplace=True)
 
-    features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
+    features = ['close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
     if not all(feature in data.columns for feature in features):
         return None, None
 
@@ -177,8 +180,8 @@ def calculate_portfolio_metrics():
     total_value = st.session_state.balance
     for symbol, position in st.session_state.positions.items():
         data = get_data(symbol, '2020-01-01', datetime.now().strftime('%Y-%m-%d'))  # Use FMP for the latest price
-        if not data.empty:
-            current_price = data['Close'].iloc[-1]
+        if not data.empty and 'close' in data.columns:
+            current_price = data['close'].iloc[-1]
             total_value += position['quantity'] * current_price
 
     initial_balance = st.session_state.initial_balance
@@ -274,6 +277,11 @@ def main():
                     st.warning(f"No data retrieved for {symbol}.")
                     continue
 
+                # Check for 'close' column presence
+                if 'close' not in data.columns:
+                    st.warning(f"The 'close' column is missing in the data for {symbol}.")
+                    continue
+
                 data = calculate_signals(data)
                 X, y = prepare_ml_data(data)
                 if X is None or y is None:
@@ -284,11 +292,11 @@ def main():
                 model_scores.append(rmse)
 
                 latest_data = data.iloc[-1]
-                features = ['Close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
+                features = ['close', 'SMA20', 'SMA50', 'EMA20', 'RSI', 'MACD', 'Signal_Line', 'BB_Upper', 'BB_Lower', 'Volatility', 'Momentum']
                 X_latest = latest_data[features].values.reshape(1, -1)
                 predicted_price = model.predict(X_latest)[0]
 
-                current_price = latest_data['Close']
+                current_price = latest_data['close']
 
                 action = 'Buy' if predicted_price > current_price else 'Sell'
                 stop_loss_price = current_price * (1 - st.session_state.user_stop_loss_pct)
@@ -321,8 +329,8 @@ def main():
         positions_list = []
         for symbol, position in st.session_state.positions.items():
             data = get_data(symbol, '2020-01-01', datetime.now().strftime('%Y-%m-%d'))  # Get latest price
-            if not data.empty:
-                current_price = data['Close'].iloc[-1]
+            if not data.empty and 'close' in data.columns:
+                current_price = data['close'].iloc[-1]
                 quantity = position['quantity']
                 cost_basis = position['cost_basis']
                 market_value = quantity * current_price
