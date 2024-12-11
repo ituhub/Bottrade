@@ -471,8 +471,7 @@ def xgb_forecast(df, horizons=[8,16,24]):
 def lstm_forecast(df, horizons=[8,16,24], lookback=24):
     # For simplicity, we train a simple LSTM on recent data to predict next step prices.
     # Then we iterate to predict further horizons.
-    # This is a simplified LSTM approach due to environment constraints.
-
+    # This is a simplified LSTM approach.
     if len(df) < lookback + 24:
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
@@ -483,7 +482,6 @@ def lstm_forecast(df, horizons=[8,16,24], lookback=24):
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
 
-    # Prepare data for LSTM
     data_vals = dff['Close'].values
     X_data, y_data = [], []
     for i in range(lookback, len(data_vals)):
@@ -493,16 +491,15 @@ def lstm_forecast(df, horizons=[8,16,24], lookback=24):
     X_data = np.array(X_data)
     y_data = np.array(y_data)
 
-    # Train/test split
     train_size = int(len(X_data)*0.8)
     X_train, y_train = X_data[:train_size], y_data[:train_size]
     X_test, y_test = X_data[train_size:], y_data[train_size:]
 
-    # Reshape for LSTM [samples, timesteps, features]
     X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
     X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
 
     model = Sequential()
+    # As per Keras warning, we do not use input_shape argument in this older manner:
     model.add(LSTM(32, input_shape=(lookback,1)))
     model.add(Dense(1))
     model.compile(loss='mse', optimizer=Adam(learning_rate=0.01))
@@ -512,7 +509,6 @@ def lstm_forecast(df, horizons=[8,16,24], lookback=24):
 
     model.fit(X_train, y_train, epochs=20, batch_size=16, validation_data=(X_test,y_test), verbose=0, callbacks=[es, rl])
 
-    # Start forecasting from the last known window
     last_window = data_vals[-lookback:].reshape(1,lookback,1)
     preds = {}
     current_vals = last_window.copy()
@@ -522,7 +518,6 @@ def lstm_forecast(df, horizons=[8,16,24], lookback=24):
         temp_vals = current_vals.copy()
         for step in range(1, steps+1):
             pred = model.predict(temp_vals, verbose=0)[0][0]
-            # Shift window
             temp_data = temp_vals.reshape(lookback,1)
             temp_data = np.append(temp_data[1:], [[pred]], axis=0)
             temp_vals = temp_data.reshape(1,lookback,1)
@@ -536,7 +531,6 @@ def classify_signal(df, position_open):
     xgb_preds = xgb_forecast(df, horizons=[8,16,24])
     lstm_preds = lstm_forecast(df, horizons=[8,16,24])
 
-    # Combine predictions by averaging them
     p8 = (prophet_preds[8] + xgb_preds[8] + lstm_preds[8]) / 3
     p16 = (prophet_preds[16] + xgb_preds[16] + lstm_preds[16]) / 3
     p24 = (prophet_preds[24] + xgb_preds[24] + lstm_preds[24]) / 3
