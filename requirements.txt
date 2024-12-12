@@ -8,3 +8,4 @@ xgboost
 tensorflow
 scikit-learn
 joblib
+cmdstanpy
