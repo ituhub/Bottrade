@@ -13,6 +13,7 @@ from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import pickle
+import joblib  # Import joblib to load combined models
 
 st.set_page_config(
     page_title="Advanced Trading Bot Dashboard with Enhanced Feature Engineering",
@@ -25,6 +26,9 @@ COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
+
+# Load all pre-trained models from combined_models.pkl
+models_dict = joblib.load('combined_models.pkl')  # Adjust the path if necessary
 
 if 'initial_balance' not in st.session_state:
     st.session_state.initial_balance = 10000
@@ -100,6 +104,8 @@ def fetch_live_data(tickers, asset_class):
     if not api_key:
         st.error("API key not found in environment variables. Set 'FMP_API_KEY'.")
         return data
+
+    api_key = api_key.strip()  # Remove any leading/trailing whitespace
 
     for ticker in tickers:
         try:
@@ -321,16 +327,15 @@ def mean_absolute_percentage_error(y_true, y_pred):
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 #############################################
-# Load Pre-trained Prophet Model
+# Use Combined Models from combined_models.pkl
 #############################################
+
 def load_prophet_model(ticker):
-    model_filename = f'prophet_model_{ticker}.pkl'
-    try:
-        with open(model_filename, 'rb') as f:
-            m = pickle.load(f)
-        return m
-    except FileNotFoundError:
-        st.warning(f"Prophet model file for {ticker} not found.")
+    model_name = f'prophet_model_{ticker}'
+    if model_name in models_dict:
+        return models_dict[model_name]
+    else:
+        st.warning(f"Prophet model for {ticker} not found in combined models.")
         return None
 
 def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24]):
@@ -356,17 +361,12 @@ def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24])
     accuracy = 95.0  # Placeholder value; you can adjust or compute it as needed
     return preds, accuracy
 
-#############################################
-# Enhanced Feature Engineering for XGBoost
-#############################################
 def load_xgb_model(ticker):
-    model_filename = f'xgb_model_{ticker}.pkl'
-    try:
-        with open(model_filename, 'rb') as f:
-            model = pickle.load(f)
-        return model
-    except FileNotFoundError:
-        st.warning(f"XGBoost model file for {ticker} not found.")
+    model_name = f'xgb_model_{ticker}'
+    if model_name in models_dict:
+        return models_dict[model_name]
+    else:
+        st.warning(f"XGBoost model for {ticker} not found in combined models.")
         return None
 
 def create_xgb_features(df):
@@ -431,6 +431,7 @@ def xgb_forecast(df, ticker, horizons=[8,16,24]):
 #############################################
 # LSTM-based Forecasting for Non-Linear Patterns
 #############################################
+
 def load_lstm_model(ticker):
     model_filename = f'lstm_model_{ticker}.h5'
     try:
