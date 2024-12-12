@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 from prophet import Prophet
+from prophet.serialize import model_to_json
 from xgboost import XGBRegressor
-import pickle
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
@@ -93,8 +93,9 @@ for ticker in ALL_TICKERS:
         prophet_df = df[['Close']].reset_index().rename(columns={'date':'ds','Close':'y'}).sort_values('ds')
         m = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=False)
         m.fit(prophet_df)
-        with open(f'prophet_model_{ticker}.pkl', 'wb') as f:
-            pickle.dump(m, f)
+        # Save the Prophet model using model_to_json
+        with open(f'prophet_model_{ticker}.json', 'w') as f:
+            f.write(model_to_json(m))
 
         # XGBoost Model
         X, y = create_xgb_features(df, lags=6)
@@ -109,8 +110,8 @@ for ticker in ALL_TICKERS:
             y_pred_xgb = xgb_model.predict(X_test)
             xgb_mae = mean_absolute_error(y_test, y_pred_xgb)
             print(f"{ticker} XGB MAE: {xgb_mae}")
-            with open(f'xgb_model_{ticker}.pkl', 'wb') as f:
-                pickle.dump(xgb_model, f)
+            # Save the XGBoost model
+            xgb_model.save_model(f'xgb_model_{ticker}.json')
 
         # LSTM Model
         lookback = 24
@@ -141,6 +142,7 @@ for ticker in ALL_TICKERS:
             lstm_mae = mean_absolute_error(y_lstm_test, y_pred_lstm)
             print(f"{ticker} LSTM MAE: {lstm_mae}")
 
+            # Save the LSTM model
             lstm_model.save(f'lstm_model_{ticker}.h5')
 
         print(f"{ticker} models trained and saved successfully!")
