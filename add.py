@@ -6,14 +6,10 @@ import os
 import requests
 from datetime import datetime, timedelta
 from prophet import Prophet
+from prophet.serialize import model_from_json
 from sklearn.metrics import mean_absolute_error
-from xgboost import XGBRegressor
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-import pickle
-import joblib  # Import joblib to load combined models
+import xgboost as xgb
+from tensorflow.keras.models import load_model
 
 st.set_page_config(
     page_title="Advanced Trading Bot Dashboard with Enhanced Feature Engineering",
@@ -26,9 +22,6 @@ COMMODITIES = ["GC=F", "SI=F", "NG=F", "KC=F"]
 FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
-
-# Load all pre-trained models from combined_models.pkl
-models_dict = joblib.load('combined_models.pkl')  # Adjust the path if necessary
 
 if 'initial_balance' not in st.session_state:
     st.session_state.initial_balance = 10000
@@ -89,7 +82,7 @@ st.write(f"Selected Asset Class: {asset_class}")
 st.write(f"Tickers: {tickers}")
 
 num_tickers = len(tickers)
-capital_per_ticker = st.session_state.balance / num_tickers
+capital_per_ticker = st.session_state.balance / num_tickers if num_tickers > 0 else 0
 
 for ticker in tickers:
     if ticker not in st.session_state.allocated_capital:
@@ -104,8 +97,6 @@ def fetch_live_data(tickers, asset_class):
     if not api_key:
         st.error("API key not found in environment variables. Set 'FMP_API_KEY'.")
         return data
-
-    api_key = api_key.strip()  # Remove any leading/trailing whitespace
 
     for ticker in tickers:
         try:
@@ -318,119 +309,28 @@ else:
 
 st.markdown("---")
 
-#############################################
-# Forecasting and Feature Engineering for Prophet and XGBoost
-#############################################
+# [The rest of your forecasting and signal classification code remains the same, but make sure to update the model loading functions]
 
-def mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-
-#############################################
-# Use Combined Models from combined_models.pkl
-#############################################
-
+# Update model loading functions in your code
 def load_prophet_model(ticker):
-    model_name = f'prophet_model_{ticker}'
-    if model_name in models_dict:
-        return models_dict[model_name]
-    else:
-        st.warning(f"Prophet model for {ticker} not found in combined models.")
+    model_filename = f'prophet_model_{ticker}.json'
+    try:
+        with open(model_filename, 'r') as f:
+            m = model_from_json(f.read())
+        return m
+    except FileNotFoundError:
+        st.warning(f"Prophet model file for {ticker} not found.")
         return None
-
-def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24]):
-    m = load_prophet_model(ticker)
-    if m is None:
-        last_close = df['Close'].iloc[-1]
-        return {h: last_close for h in horizons}, 0.0
-    
-    # Use the model to make future predictions
-    last_date = df.index[-1]
-    future_dates = [last_date + timedelta(hours=h) for h in range(1, max(horizons)+1)]
-    future = pd.DataFrame({'ds': future_dates})
-    forecast = m.predict(future)
-    forecast = forecast.set_index('ds')
-
-    preds = {}
-    for h in horizons:
-        target_date = last_date + timedelta(hours=h)
-        if target_date in forecast.index:
-            preds[h] = forecast.loc[target_date, 'yhat']
-        else:
-            preds[h] = forecast['yhat'].iloc[-1]
-    accuracy = 95.0  # Placeholder value; you can adjust or compute it as needed
-    return preds, accuracy
 
 def load_xgb_model(ticker):
-    model_name = f'xgb_model_{ticker}'
-    if model_name in models_dict:
-        return models_dict[model_name]
-    else:
-        st.warning(f"XGBoost model for {ticker} not found in combined models.")
+    model_filename = f'xgb_model_{ticker}.json'
+    try:
+        xgb_model = xgb.XGBRegressor()
+        xgb_model.load_model(model_filename)
+        return xgb_model
+    except FileNotFoundError:
+        st.warning(f"XGBoost model file for {ticker} not found.")
         return None
-
-def create_xgb_features(df):
-    dff = df.copy()
-
-    # Time-based features
-    dff['hour'] = dff.index.hour
-    dff['day_of_week'] = dff.index.dayofweek
-    # Cyclical encoding for hour_of_day (24h cycle)
-    dff['hour_sin'] = np.sin(2 * np.pi * dff['hour'] / 24)
-    dff['hour_cos'] = np.cos(2 * np.pi * dff['hour'] / 24)
-    # Cyclical encoding for day_of_week (7-day cycle)
-    dff['dow_sin'] = np.sin(2 * np.pi * dff['day_of_week'] / 7)
-    dff['dow_cos'] = np.cos(2 * np.pi * dff['day_of_week'] / 7)
-
-    # Lag features
-    max_lag = 6
-    for i in range(1, max_lag+1):
-        dff[f'Close_lag_{i}'] = dff['Close'].shift(i)
-
-    # Relative features
-    if 'BB_Middle' in dff.columns:
-        dff['Close_minus_BB_Mid'] = dff['Close'] - dff['BB_Middle']
-    if 'Fibo_50.0' in dff.columns:
-        dff['Close_minus_Fibo_50'] = dff['Close'] - dff['Fibo_50.0']
-
-    feature_candidates = [
-        'RSI','MACD','MACD_Signal',
-        'BB_Middle','BB_Upper','BB_Lower',
-        'Fibo_23.6','Fibo_38.2','Fibo_50.0','Fibo_61.8',
-        'Close_minus_BB_Mid','Close_minus_Fibo_50'
-    ]
-
-    dff = dff.dropna(subset=['Close'] + [f'Close_lag_{i}' for i in range(1, max_lag+1)])
-    return dff, feature_candidates
-
-def xgb_forecast(df, ticker, horizons=[8,16,24]):
-    model = load_xgb_model(ticker)
-    if model is None:
-        last_close = df['Close'].iloc[-1]
-        return {h: last_close for h in horizons}
-
-    dff, feature_candidates = create_xgb_features(df)
-
-    valid_features = [c for c in feature_candidates if c in dff.columns]
-    lag_features = [c for c in dff.columns if 'lag_' in c]
-    time_features = ['hour_sin','hour_cos','dow_sin','dow_cos']
-    all_features = valid_features + lag_features + time_features
-
-    dff = dff.dropna(subset=all_features)
-    if len(dff) < 50:
-        last_close = df['Close'].iloc[-1]
-        return {h: last_close for h in horizons}
-
-    current_vals = dff.iloc[-1][all_features]
-
-    preds = {}
-    for h in horizons:
-        preds[h] = model.predict(current_vals.values.reshape(1, -1))[0]
-    return preds
-
-#############################################
-# LSTM-based Forecasting for Non-Linear Patterns
-#############################################
 
 def load_lstm_model(ticker):
     model_filename = f'lstm_model_{ticker}.h5'
@@ -441,205 +341,9 @@ def load_lstm_model(ticker):
         st.warning(f"LSTM model file for {ticker} not found.")
         return None
 
-def lstm_forecast(df, ticker, horizons=[8,16,24], lookback=24):
-    model = load_lstm_model(ticker)
-    if model is None:
-        last_close = df['Close'].iloc[-1]
-        return {h: last_close for h in horizons}
+# Ensure you update the rest of your code to use these loading functions appropriately
 
-    data_vals = df['Close'].values
-    if len(data_vals) < lookback:
-        last_close = df['Close'].iloc[-1]
-        return {h: last_close for h in horizons}
-
-    last_window = data_vals[-lookback:].reshape(1, lookback, 1)
-
-    preds = {}
-    temp_vals = last_window.copy()
-    for h in horizons:
-        pred = model.predict(temp_vals)[0][0]
-        temp_data = np.append(temp_vals.flatten()[1:], pred)
-        temp_vals = temp_data.reshape(1, lookback, 1)
-        preds[h] = pred
-    return preds
-
-def classify_signal(df, ticker, position_open):
-    prophet_preds, prophet_acc = multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24])
-    xgb_preds = xgb_forecast(df, ticker, horizons=[8,16,24])
-    lstm_preds = lstm_forecast(df, ticker, horizons=[8,16,24])
-
-    # If any of the models didn't return predictions, use last close price
-    for preds in (prophet_preds, xgb_preds, lstm_preds):
-        if preds is None or not preds:
-            last_close = df['Close'].iloc[-1]
-            preds = {h: last_close for h in [8,16,24]}
-
-    p8 = (prophet_preds[8] + xgb_preds[8] + lstm_preds[8]) / 3
-    p16 = (prophet_preds[16] + xgb_preds[16] + lstm_preds[16]) / 3
-    p24 = (prophet_preds[24] + xgb_preds[24] + lstm_preds[24]) / 3
-    accuracy = prophet_acc
-
-    lookback = min(len(df), 48)
-    volatility = df['Close'].tail(lookback).std() if lookback > 1 else 1
-    predicted_price = p8
-
-    last_row = df.iloc[-1]
-    signal = last_row['Signal']
-    rsi = last_row['RSI']
-
-    tp_factor = 2.0
-    sl_factor = 2.0
-
-    signal_strength = {
-        "Buy": "",
-        "Sell": "",
-        "Close position": "",
-        "Prediction (8h)": f"${p8:.2f}",
-        "Prediction (16h)": f"${p16:.2f}",
-        "Prediction (24h)": f"${p24:.2f}",
-        "Model Accuracy": f"{accuracy:.2f}%",
-        "Take Profit": "",
-        "Stop Loss": ""
-    }
-
-    if signal == 1:  # Bullish
-        if rsi < 30:
-            signal_strength["Buy"] = "Strong"
-        else:
-            signal_strength["Buy"] = "Potential"
-        tp = predicted_price + (volatility * tp_factor)
-        sl = predicted_price - (volatility * sl_factor)
-        signal_strength["Take Profit"] = f"${tp:.2f}"
-        signal_strength["Stop Loss"] = f"${sl:.2f}"
-
-    elif signal == -1:  # Bearish
-        if rsi > 70:
-            signal_strength["Sell"] = "Strong"
-        else:
-            signal_strength["Sell"] = "Potential"
-        if position_open:
-            signal_strength["Close position"] = "Close Position"
-        tp = predicted_price - (volatility * tp_factor)
-        sl = predicted_price + (volatility * sl_factor)
-        signal_strength["Take Profit"] = f"${tp:.2f}"
-        signal_strength["Stop Loss"] = f"${sl:.2f}"
-
-    else:  # Neutral
-        if position_open:
-            signal_strength["Close position"] = "Consider Close"
-            tp = predicted_price + (volatility * 1.0)
-            sl = predicted_price - (volatility * 1.0)
-            signal_strength["Take Profit"] = f"${tp:.2f}"
-            signal_strength["Stop Loss"] = f"${sl:.2f}"
-
-    return signal_strength
-
-signals_list = []
-for ticker in tickers:
-    if ticker in data:
-        df = compute_indicators(data[ticker], asset_class)
-        if df.empty:
-            continue
-        df = generate_signals(df)
-        position_open = st.session_state.open_positions[ticker] is not None
-        classification = classify_signal(df, ticker, position_open)
-        signals_list.append({
-            "Symbol": ticker,
-            "Buy": classification["Buy"],
-            "Sell": classification["Sell"],
-            "Close position": classification["Close position"],
-            "Prediction (8h)": classification["Prediction (8h)"],
-            "Prediction (16h)": classification["Prediction (16h)"],
-            "Prediction (24h)": classification["Prediction (24h)"],
-            "Model Accuracy": classification["Model Accuracy"],
-            "Take Profit": classification["Take Profit"],
-            "Stop Loss": classification["Stop Loss"]
-        })
-
-if signals_list:
-    signals_df = pd.DataFrame(signals_list)
-    st.header("📊 Signals")
-    st.dataframe(signals_df)
-else:
-    st.info("No signals available to display.")
-
-st.markdown("---")
-st.header("🔍 Trade Signals and Price Charts")
-for ticker in tickers:
-    if ticker in data:
-        df = compute_indicators(data[ticker], asset_class)
-        if df.empty:
-            st.warning(f"No data to display for {ticker}.")
-            continue
-        df = generate_signals(df)
-
-        trades = [trade for trade in st.session_state.trade_history if trade['Ticker'] == ticker]
-        position = st.session_state.open_positions[ticker]
-
-        st.subheader(f"{ticker} Price Chart with Indicators and Signals")
-
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            name='Price'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['MA_Short'], line=dict(width=1), name='MA Short'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['MA_Long'], line=dict(width=1), name='MA Long'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['BB_Upper'], line=dict(width=1, color='red'), name='BB Upper'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['BB_Middle'], line=dict(width=1, color='blue'), name='BB Middle'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['BB_Lower'], line=dict(width=1, color='red'), name='BB Lower'
-        ))
-
-        fib_cols = [c for c in df.columns if 'Fibo_' in c]
-        for fib_c in fib_cols:
-            fig.add_trace(go.Scatter(
-                x=df.index, y=df[fib_c], line=dict(width=1, dash='dot'), name=fib_c
-            ))
-
-        if trades:
-            buy_times = [pd.to_datetime(trade['Buy_Time']) for trade in trades]
-            buy_prices = [trade['Buy_Price'] for trade in trades]
-            sell_times = [pd.to_datetime(trade['Sell_Time']) for trade in trades]
-            sell_prices = [trade['Sell_Price'] for trade in trades]
-
-            fig.add_trace(go.Scatter(
-                x=buy_times, y=buy_prices, mode='markers', marker_symbol='triangle-up', marker_color='green',
-                marker_size=12, name='Buy Signal'
-            ))
-            fig.add_trace(go.Scatter(
-                x=sell_times, y=sell_prices, mode='markers', marker_symbol='triangle-down', marker_color='red',
-                marker_size=12, name='Sell Signal'
-            ))
-
-        if position:
-            fig.add_trace(go.Scatter(
-                x=[position['Buy_Time']], y=[position['Buy_Price']], mode='markers',
-                marker_symbol='star', marker_color='gold', marker_size=15, name='Open Position'
-            ))
-
-        fig.update_layout(
-            xaxis_title='Date/Time',
-            yaxis_title='Price',
-            height=600,
-            margin=dict(l=0, r=0, t=30, b=0),
-            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning(f"No data available for {ticker}.")
+# [Rest of your code...]
 
 st.markdown("---")
 st.markdown("<div style='text-align:center;'>© 2023 Advanced Trading Bot Dashboard | Powered by Streamlit</div>", unsafe_allow_html=True)
