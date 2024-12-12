@@ -188,9 +188,56 @@ def generate_signals(df):
     df.loc[df['MA_Short'] < df['MA_Long'], 'Signal'] = -1
     return df
 
+def simulate_trades_live(data):
+    for ticker in tickers:
+        if ticker in data:
+            df = compute_indicators(data[ticker], asset_class)
+            if df.empty:
+                continue
+            df = generate_signals(df)
+            allocated = st.session_state.allocated_capital[ticker]
+            position = st.session_state.open_positions[ticker]
+
+            current_time = df.index[-1]
+            row = df.iloc[-1]
+            signal = row['Signal']
+            price = row['Close']
+
+            if position is None:
+                if signal == 1:
+                    quantity = allocated / price
+                    buy_price = price
+                    position = {
+                        'Buy_Time': current_time,
+                        'Buy_Price': buy_price,
+                        'Quantity': quantity
+                    }
+                    st.session_state.open_positions[ticker] = position
+                    st.session_state.balance -= allocated
+                    st.session_state.balance_history.append({'Time': current_time, 'Balance': st.session_state.balance})
+                    st.success(f"✅ Bought {ticker} at ${buy_price:.2f} on {current_time}")
+            else:
+                if price >= position['Buy_Price'] * 1.10 or signal == -1:
+                    sell_price = price
+                    profit = (sell_price - position['Buy_Price']) * position['Quantity']
+                    st.session_state.balance += allocated + profit
+                    st.session_state.balance_history.append({'Time': current_time, 'Balance': st.session_state.balance})
+                    st.session_state.trade_history.append({
+                        'Ticker': ticker,
+                        'Buy_Time': position['Buy_Time'],
+                        'Buy_Price': position['Buy_Price'],
+                        'Sell_Time': current_time,
+                        'Sell_Price': sell_price,
+                        'Profit/Loss': profit
+                    })
+                    st.success(f"✅ Sold {ticker} at ${sell_price:.2f} on {current_time} | Profit: ${profit:.2f}")
+                    st.session_state.open_positions[ticker] = None
+
 # Load models for predictions
+models_dir = 'models'  # Update if your models are in a different directory
+
 def load_prophet_model(ticker):
-    model_filename = f'prophet_model_{ticker}.json'
+    model_filename = os.path.join(models_dir, f'prophet_model_{ticker}.json')
     try:
         with open(model_filename, 'r') as f:
             m = model_from_json(f.read())
@@ -223,7 +270,7 @@ def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8, 16, 24
     return preds, accuracy
 
 def load_xgb_model(ticker):
-    model_filename = f'xgb_model_{ticker}.json'
+    model_filename = os.path.join(models_dir, f'xgb_model_{ticker}.json')
     try:
         xgb_model = xgb.XGBRegressor()
         xgb_model.load_model(model_filename)
@@ -292,7 +339,7 @@ def xgb_forecast(df, ticker, horizons=[8, 16, 24]):
     return preds
 
 def load_lstm_model(ticker):
-    model_filename = f'lstm_model_{ticker}.h5'
+    model_filename = os.path.join(models_dir, f'lstm_model_{ticker}.h5')
     try:
         model = load_model(model_filename)
         return model
