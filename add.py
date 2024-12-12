@@ -6,10 +6,10 @@ import os
 import requests
 from datetime import datetime, timedelta
 from prophet import Prophet
-from prophet.serialize import model_from_json
 from sklearn.metrics import mean_absolute_error
 import xgboost as xgb
 from tensorflow.keras.models import load_model
+import pickle
 
 st.set_page_config(
     page_title="Advanced Trading Bot Dashboard with Enhanced Feature Engineering",
@@ -23,6 +23,11 @@ FOREX_SYMBOLS = ["EURUSD=X", "USDJPY=X", "GBPUSD=X", "AUDUSD=X"]
 CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "DOT-USD", "LTC-USD"]
 INDICES_SYMBOLS = ["^GSPC", "^GDAXI", "^HSI", "000300.SS"]
 
+# Function to sanitize ticker symbols
+def sanitize_ticker(ticker):
+    return ticker.replace('=', '_').replace('/', '_').replace('^', '').replace('.', '_')
+
+# Initialize session state variables
 if 'initial_balance' not in st.session_state:
     st.session_state.initial_balance = 10000
 if 'balance' not in st.session_state:
@@ -38,14 +43,7 @@ if 'balance_history' not in st.session_state:
 
 st.title("🚀 Advanced Trading Bot Dashboard with Enhanced Feature Engineering")
 st.markdown("""
-This version includes:
-- Advanced feature engineering for the XGBoost model:
-  - Technical indicators (RSI, MACD, Bollinger Bands, Fibonacci Retracements)
-  - Time-based cyclical features (hour_of_day, day_of_week)
-  - Relative price difference features
-- Integration of Bollinger Bands and Fibonacci Retracement strategies to complement RSI and MACD.
-- LSTM-based forecasting to enhance detection of non-linear price patterns.
-- The rest of the logic (Prophet predictions, signal generation, etc.) remains intact.
+This dashboard demonstrates an advanced trading bot that leverages enhanced feature engineering and multiple machine learning models to predict market movements.
 """)
 
 st.sidebar.title("Navigation")
@@ -237,10 +235,11 @@ def simulate_trades_live(data):
 models_dir = 'models'  # Update if your models are in a different directory
 
 def load_prophet_model(ticker):
-    model_filename = os.path.join(models_dir, f'prophet_model_{ticker}.json')
+    sanitized_ticker = sanitize_ticker(ticker)
+    model_filename = os.path.join(models_dir, f'prophet_model_{sanitized_ticker}.pkl')
     try:
-        with open(model_filename, 'r') as f:
-            m = model_from_json(f.read())
+        with open(model_filename, 'rb') as f:
+            m = pickle.load(f)
         return m
     except FileNotFoundError:
         st.warning(f"Prophet model file for {ticker} not found.")
@@ -270,10 +269,11 @@ def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8, 16, 24
     return preds, accuracy
 
 def load_xgb_model(ticker):
-    model_filename = os.path.join(models_dir, f'xgb_model_{ticker}.json')
+    sanitized_ticker = sanitize_ticker(ticker)
+    model_filename = os.path.join(models_dir, f'xgb_model_{sanitized_ticker}.pkl')
     try:
-        xgb_model = xgb.XGBRegressor()
-        xgb_model.load_model(model_filename)
+        with open(model_filename, 'rb') as f:
+            xgb_model = pickle.load(f)
         return xgb_model
     except FileNotFoundError:
         st.warning(f"XGBoost model file for {ticker} not found.")
@@ -339,7 +339,8 @@ def xgb_forecast(df, ticker, horizons=[8, 16, 24]):
     return preds
 
 def load_lstm_model(ticker):
-    model_filename = os.path.join(models_dir, f'lstm_model_{ticker}.h5')
+    sanitized_ticker = sanitize_ticker(ticker)
+    model_filename = os.path.join(models_dir, f'lstm_model_{sanitized_ticker}.h5')
     try:
         model = load_model(model_filename)
         return model
