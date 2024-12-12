@@ -90,7 +90,7 @@ lightgbm==3.3.5
 login==0.0.6
 LunarCalendar==0.0.9
 lxml==4.9.3
-marisa-trie==1.0.12
+marisa-trie==1.2.1
 Markdown==3.4.4
 markdown-it-py==3.0.0
 MarkupSafe==2.1.3
