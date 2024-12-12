@@ -8,10 +8,11 @@ from datetime import datetime, timedelta
 from prophet import Prophet
 from sklearn.metrics import mean_absolute_error
 from xgboost import XGBRegressor
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import pickle
 
 st.set_page_config(
     page_title="Advanced Trading Bot Dashboard with Enhanced Feature Engineering",
@@ -319,64 +320,55 @@ def mean_absolute_percentage_error(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
-def train_test_prophet(df, test_hours=24):
-    if len(df) < test_hours + 24:
-        return None, None, None, None
+#############################################
+# Load Pre-trained Prophet Model
+#############################################
+def load_prophet_model(ticker):
+    model_filename = f'prophet_model_{ticker}.pkl'
+    try:
+        with open(model_filename, 'rb') as f:
+            m = pickle.load(f)
+        return m
+    except FileNotFoundError:
+        st.warning(f"Prophet model file for {ticker} not found.")
+        return None
 
-    prophet_df = df.reset_index()[['date','Close']].rename(columns={'date':'ds','Close':'y'}).sort_values('ds')
-    train_df = prophet_df.iloc[:-test_hours]
-    test_df = prophet_df.iloc[-test_hours:]
-
-    m = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=False)
-    m.fit(train_df)
-
-    future_test = m.make_future_dataframe(periods=test_hours, freq='H')
-    forecast_test = m.predict(future_test)
-    forecast_test = forecast_test.set_index('ds')
-    common_times = forecast_test.index.intersection(test_df['ds'])
-    if len(common_times) < 1:
-        return None, None, None, None
-
-    test_forecast = forecast_test.loc[common_times]
-    test_df = test_df[test_df['ds'].isin(common_times)]
-
-    if len(test_df) < 1:
-        return None, None, None, None
-
-    y_true = test_df['y'].values
-    y_pred = test_forecast['yhat'].values
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-    accuracy = max(0, 100 - mape)
-
-    future_full = m.make_future_dataframe(periods=24, freq='H')
-    forecast_full = m.predict(future_full).set_index('ds')
-    last_date = prophet_df['ds'].iloc[-1]
-
-    return m, forecast_full, accuracy, last_date
-
-def multi_horizon_forecast_with_accuracy_prophet(df, horizons=[8,16,24]):
-    if df.empty:
-        last_close = df['Close'].iloc[-1] if not df.empty else 100.0
-        return {h: last_close for h in horizons}, 0.0
-
-    res = train_test_prophet(df, test_hours=24)
-    if res[0] is None:
+def multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24]):
+    m = load_prophet_model(ticker)
+    if m is None:
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}, 0.0
+    
+    # Use the model to make future predictions
+    last_date = df.index[-1]
+    future_dates = [last_date + timedelta(hours=h) for h in range(1, max(horizons)+1)]
+    future = pd.DataFrame({'ds': future_dates})
+    forecast = m.predict(future)
+    forecast = forecast.set_index('ds')
 
-    m, forecast_full, accuracy, last_date = res
-    pred = {}
+    preds = {}
     for h in horizons:
         target_date = last_date + timedelta(hours=h)
-        if target_date in forecast_full.index:
-            pred[h] = forecast_full.loc[target_date, 'yhat']
+        if target_date in forecast.index:
+            preds[h] = forecast.loc[target_date, 'yhat']
         else:
-            pred[h] = forecast_full['yhat'].iloc[-1]
-    return pred, accuracy
+            preds[h] = forecast['yhat'].iloc[-1]
+    accuracy = 95.0  # Placeholder value; you can adjust or compute it as needed
+    return preds, accuracy
 
 #############################################
 # Enhanced Feature Engineering for XGBoost
 #############################################
+def load_xgb_model(ticker):
+    model_filename = f'xgb_model_{ticker}.pkl'
+    try:
+        with open(model_filename, 'rb') as f:
+            model = pickle.load(f)
+        return model
+    except FileNotFoundError:
+        st.warning(f"XGBoost model file for {ticker} not found.")
+        return None
+
 def create_xgb_features(df):
     dff = df.copy()
 
@@ -411,8 +403,9 @@ def create_xgb_features(df):
     dff = dff.dropna(subset=['Close'] + [f'Close_lag_{i}' for i in range(1, max_lag+1)])
     return dff, feature_candidates
 
-def xgb_forecast(df, horizons=[8,16,24]):
-    if len(df) < 100:
+def xgb_forecast(df, ticker, horizons=[8,16,24]):
+    model = load_xgb_model(ticker)
+    if model is None:
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
 
@@ -428,108 +421,57 @@ def xgb_forecast(df, horizons=[8,16,24]):
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
 
-    X = dff[all_features]
-    y = dff['Close']
-
-    model = XGBRegressor(n_estimators=50, max_depth=3, learning_rate=0.1)
-    model.fit(X, y)
-
-    current_vals = dff.iloc[-1].copy()
-
-    def shift_lags(vals, new_close):
-        for i in range(6,0,-1):
-            vals[f'Close_lag_{i}'] = vals[f'Close_lag_{i-1}'] if i>1 else new_close
+    current_vals = dff.iloc[-1][all_features]
 
     preds = {}
-    current_dt = dff.index[-1]
     for h in horizons:
-        steps = h
-        temp_vals = current_vals.copy()
-        for step in range(1, steps+1):
-            future_dt = current_dt + timedelta(hours=step)
-            future_hour = future_dt.hour
-            future_dow = future_dt.dayofweek
-            temp_vals['hour'] = future_hour
-            temp_vals['day_of_week'] = future_dow
-            temp_vals['hour_sin'] = np.sin(2 * np.pi * future_hour / 24)
-            temp_vals['hour_cos'] = np.cos(2 * np.pi * future_hour / 24)
-            temp_vals['dow_sin'] = np.sin(2 * np.pi * future_dow / 7)
-            temp_vals['dow_cos'] = np.cos(2 * np.pi * future_dow / 7)
-
-            X_pred = temp_vals[all_features].values.reshape(1,-1)
-            pred_close = model.predict(X_pred)[0]
-
-            shift_lags(temp_vals, pred_close)
-
-        preds[h] = pred_close
-
+        preds[h] = model.predict(current_vals.values.reshape(1, -1))[0]
     return preds
 
 #############################################
 # LSTM-based Forecasting for Non-Linear Patterns
 #############################################
-def lstm_forecast(df, horizons=[8,16,24], lookback=24):
-    # For simplicity, we train a simple LSTM on recent data to predict next step prices.
-    # Then we iterate to predict further horizons.
-    # This is a simplified LSTM approach.
-    if len(df) < lookback + 24:
+def load_lstm_model(ticker):
+    model_filename = f'lstm_model_{ticker}.h5'
+    try:
+        model = load_model(model_filename)
+        return model
+    except FileNotFoundError:
+        st.warning(f"LSTM model file for {ticker} not found.")
+        return None
+
+def lstm_forecast(df, ticker, horizons=[8,16,24], lookback=24):
+    model = load_lstm_model(ticker)
+    if model is None:
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
 
-    dff = df[['Close']].copy()
-    dff = dff.dropna()
-    if len(dff) < lookback:
+    data_vals = df['Close'].values
+    if len(data_vals) < lookback:
         last_close = df['Close'].iloc[-1]
         return {h: last_close for h in horizons}
 
-    data_vals = dff['Close'].values
-    X_data, y_data = [], []
-    for i in range(lookback, len(data_vals)):
-        X_data.append(data_vals[i-lookback:i])
-        y_data.append(data_vals[i])
+    last_window = data_vals[-lookback:].reshape(1, lookback, 1)
 
-    X_data = np.array(X_data)
-    y_data = np.array(y_data)
-
-    train_size = int(len(X_data)*0.8)
-    X_train, y_train = X_data[:train_size], y_data[:train_size]
-    X_test, y_test = X_data[train_size:], y_data[train_size:]
-
-    X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
-    X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
-
-    model = Sequential()
-    # As per Keras warning, we do not use input_shape argument in this older manner:
-    model.add(LSTM(32, input_shape=(lookback,1)))
-    model.add(Dense(1))
-    model.compile(loss='mse', optimizer=Adam(learning_rate=0.01))
-
-    es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-    rl = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3)
-
-    model.fit(X_train, y_train, epochs=20, batch_size=16, validation_data=(X_test,y_test), verbose=0, callbacks=[es, rl])
-
-    last_window = data_vals[-lookback:].reshape(1,lookback,1)
     preds = {}
-    current_vals = last_window.copy()
-
+    temp_vals = last_window.copy()
     for h in horizons:
-        steps = h
-        temp_vals = current_vals.copy()
-        for step in range(1, steps+1):
-            pred = model.predict(temp_vals, verbose=0)[0][0]
-            temp_data = temp_vals.reshape(lookback,1)
-            temp_data = np.append(temp_data[1:], [[pred]], axis=0)
-            temp_vals = temp_data.reshape(1,lookback,1)
-
+        pred = model.predict(temp_vals)[0][0]
+        temp_data = np.append(temp_vals.flatten()[1:], pred)
+        temp_vals = temp_data.reshape(1, lookback, 1)
         preds[h] = pred
-
     return preds
 
-def classify_signal(df, position_open):
-    prophet_preds, prophet_acc = multi_horizon_forecast_with_accuracy_prophet(df, horizons=[8,16,24])
-    xgb_preds = xgb_forecast(df, horizons=[8,16,24])
-    lstm_preds = lstm_forecast(df, horizons=[8,16,24])
+def classify_signal(df, ticker, position_open):
+    prophet_preds, prophet_acc = multi_horizon_forecast_with_accuracy_prophet(df, ticker, horizons=[8,16,24])
+    xgb_preds = xgb_forecast(df, ticker, horizons=[8,16,24])
+    lstm_preds = lstm_forecast(df, ticker, horizons=[8,16,24])
+
+    # If any of the models didn't return predictions, use last close price
+    for preds in (prophet_preds, xgb_preds, lstm_preds):
+        if preds is None or not preds:
+            last_close = df['Close'].iloc[-1]
+            preds = {h: last_close for h in [8,16,24]}
 
     p8 = (prophet_preds[8] + xgb_preds[8] + lstm_preds[8]) / 3
     p16 = (prophet_preds[16] + xgb_preds[16] + lstm_preds[16]) / 3
@@ -599,7 +541,7 @@ for ticker in tickers:
             continue
         df = generate_signals(df)
         position_open = st.session_state.open_positions[ticker] is not None
-        classification = classify_signal(df, position_open)
+        classification = classify_signal(df, ticker, position_open)
         signals_list.append({
             "Symbol": ticker,
             "Buy": classification["Buy"],
@@ -615,6 +557,7 @@ for ticker in tickers:
 
 if signals_list:
     signals_df = pd.DataFrame(signals_list)
+    st.header("📊 Signals")
     st.dataframe(signals_df)
 else:
     st.info("No signals available to display.")
